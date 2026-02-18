@@ -1,0 +1,11 @@
+node_modules/
+.env
+dist/
+server/documents/
+*.pdf
+.DS_Store
+Thumbs.db
+generate-excel-template.js
+NSOffice_AI_Data_Capture_Template.xlsx
+Filled_*
+Filled *

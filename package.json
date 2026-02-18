@@ -1,0 +1,20 @@
+{
+  "name": "nsoffice-hrms",
+  "version": "1.0.0",
+  "description": "NSOffice.AI HRMS + Concierge AI Chatbot Demo",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && node server.js",
+    "client": "cd client && npm run dev",
+    "seed": "cd server && node seed/seedData.js",
+    "install-all": "npm install && cd client && npm install && cd ../server && npm install",
+    "render-build": "cd client && npm install && npm run build && cd ../server && npm install",
+    "start": "cd server && node server.js"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "devDependencies": {
+    "exceljs": "^4.4.0"
+  }
+}
