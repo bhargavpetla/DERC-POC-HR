@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import { FiHome, FiSettings, FiPlus, FiMessageSquare, FiSend, FiPaperclip, FiMic, FiDatabase, FiLogOut, FiUser, FiCompass } from 'react-icons/fi';
+import { FiHome, FiSettings, FiPlus, FiMessageSquare, FiSend, FiDatabase, FiLogOut, FiUser, FiTrash2 } from 'react-icons/fi';
 
 const roleBadge = (role) => {
   const map = { hr_head: { bg: 'var(--sky-blue)', label: 'HR Head' }, manager: { bg: 'var(--soft-lavender)', label: 'Manager' }, employee: { bg: 'var(--mint-green)', label: 'Employee' } };
@@ -19,6 +19,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => { loadChatHistory(); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -38,9 +39,22 @@ export default function ChatPage() {
     } catch (e) { console.error(e); }
   };
 
+  const deleteChat = async (e, chatId) => {
+    e.stopPropagation();
+    try {
+      await api.delete(`/chat/${chatId}`);
+      if (activeChatId === chatId) {
+        setActiveChatId(null);
+        setMessages([]);
+      }
+      setChats(prev => prev.filter(c => c._id !== chatId));
+    } catch (e) { console.error(e); }
+  };
+
   const startNewChat = () => {
     setActiveChatId(null);
     setMessages([]);
+    inputRef.current?.focus();
   };
 
   const sendMessage = async (text) => {
@@ -55,7 +69,7 @@ export default function ChatPage() {
     try {
       const { data } = await api.post('/chat', { message: msg, chatId: activeChatId });
       if (!activeChatId) setActiveChatId(data.chatId);
-      setMessages(prev => [...prev, { role: 'assistant', content: data.response.content, data: data.response, timestamp: new Date() }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: data.response.content, timestamp: new Date() }]);
       loadChatHistory();
     } catch (e) {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.', timestamp: new Date() }]);
@@ -64,11 +78,18 @@ export default function ChatPage() {
     }
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
   const suggestions = [
-    { title: 'Check Leave Balance', desc: 'View your remaining leaves' },
-    { title: 'View Payslip', desc: 'Access your latest payslip' },
-    { title: 'HR Policies', desc: 'Browse company policies' },
-    { title: 'Ask a Question', desc: 'Get help from HR assistant' },
+    { icon: '📊', title: 'Check Leave Balance', desc: 'View your remaining leaves' },
+    { icon: '💰', title: 'View My Payslip', desc: 'Access salary & compensation' },
+    { icon: '📋', title: 'Company Policies', desc: 'Browse policy documents' },
+    { icon: '💬', title: 'Ask HR a Question', desc: 'Get help from Veda' },
   ];
 
   return (
@@ -98,11 +119,13 @@ export default function ChatPage() {
           {/* Chat History */}
           <div style={{ marginTop: '8px' }}>
             {chats.map(chat => (
-              <div key={chat._id} onClick={() => loadChat(chat._id)}
-                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: activeChatId === chat._id ? 'var(--brand-black)' : 'var(--grey-1)', background: activeChatId === chat._id ? 'var(--border-color)' : 'transparent', fontSize: '13px', marginBottom: '2px', transition: 'var(--transition)' }}>
-                <FiMessageSquare size={14} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{chat.title}</span>
-              </div>
+              <ChatHistoryItem
+                key={chat._id}
+                chat={chat}
+                active={activeChatId === chat._id}
+                onClick={() => loadChat(chat._id)}
+                onDelete={(e) => deleteChat(e, chat._id)}
+              />
             ))}
           </div>
         </div>
@@ -131,48 +154,81 @@ export default function ChatPage() {
         {messages.length === 0 ? (
           /* Welcome Screen */
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
-            <h1 style={{ fontSize: '32px', fontWeight: 700, color: 'var(--brand-black)', marginBottom: '40px' }}>What's the Move</h1>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', maxWidth: '560px', width: '100%' }}>
+            <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent), #6B8AFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+              <span style={{ color: '#fff', fontSize: '22px', fontWeight: 700 }}>V</span>
+            </div>
+            <h1 style={{ fontSize: '28px', fontWeight: 600, color: 'var(--brand-black)', marginBottom: '8px' }}>How can I help you today?</h1>
+            <p style={{ fontSize: '14px', color: 'var(--grey-1)', marginBottom: '36px' }}>I'm Veda, your AI HR assistant. Ask me anything about your HR needs.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', maxWidth: '560px', width: '100%' }}>
               {suggestions.map((s, i) => (
-                <button key={i} onClick={() => sendMessage(s.title)} style={{ padding: '20px', background: '#fff', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', textAlign: 'left', cursor: 'pointer', transition: 'var(--transition)', boxShadow: 'var(--shadow-sm)' }}
-                  onMouseEnter={(e) => e.currentTarget.style.boxShadow = 'var(--shadow-md)'}
-                  onMouseLeave={(e) => e.currentTarget.style.boxShadow = 'var(--shadow-sm)'}>
-                  <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--brand-black)', marginBottom: '4px' }}>{s.title}</div>
-                  <div style={{ fontSize: '13px', color: 'var(--grey-1)' }}>{s.desc}</div>
+                <button key={i} onClick={() => sendMessage(s.title)} style={{ padding: '16px', background: '#fff', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', textAlign: 'left', cursor: 'pointer', transition: 'var(--transition)', boxShadow: 'var(--shadow-sm)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.boxShadow = 'var(--shadow-sm)'; }}>
+                  <div style={{ fontSize: '20px', marginBottom: '8px' }}>{s.icon}</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--brand-black)', marginBottom: '2px' }}>{s.title}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--grey-1)' }}>{s.desc}</div>
                 </button>
               ))}
             </div>
           </div>
         ) : (
           /* Messages */
-          <div style={{ flex: 1, overflow: 'auto', padding: '24px 40px' }}>
-            {messages.map((msg, i) => (
-              <MessageBubble key={i} message={msg} />
-            ))}
-            {sending && <TypingIndicator />}
-            <div ref={messagesEndRef} />
+          <div style={{ flex: 1, overflow: 'auto', padding: '24px 0' }}>
+            <div style={{ maxWidth: '768px', margin: '0 auto', padding: '0 24px' }}>
+              {messages.map((msg, i) => (
+                <MessageBubble key={i} message={msg} />
+              ))}
+              {sending && <TypingIndicator />}
+              <div ref={messagesEndRef} />
+            </div>
           </div>
         )}
 
         {/* Input Bar */}
-        <div style={{ padding: '16px 40px 20px' }}>
+        <div style={{ padding: '12px 24px 20px', maxWidth: '768px', margin: '0 auto', width: '100%' }}>
           <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }}
-            style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 16px', border: '1.5px solid var(--border-color)', borderRadius: 'var(--radius-pill)', background: '#fff', boxShadow: 'var(--shadow-sm)', transition: 'var(--transition)' }}>
-            <FiCompass size={18} color="var(--grey-2)" />
-            <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask anything..."
-              style={{ flex: 1, border: 'none', background: 'transparent', fontSize: '14px', color: 'var(--text-primary)', outline: 'none' }} />
-            <FiPaperclip size={18} color="var(--grey-2)" style={{ cursor: 'pointer' }} />
-            <FiMic size={18} color="var(--grey-2)" style={{ cursor: 'pointer' }} />
+            style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', padding: '12px 16px', border: '1.5px solid var(--border-color)', borderRadius: '16px', background: '#fff', boxShadow: 'var(--shadow-sm)', transition: 'var(--transition)' }}
+            onFocus={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
+            onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border-color)'}>
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Message Veda..."
+              rows={1}
+              style={{ flex: 1, border: 'none', background: 'transparent', fontSize: '14px', color: 'var(--text-primary)', outline: 'none', resize: 'none', maxHeight: '120px', lineHeight: '1.5' }}
+              onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
+            />
             <button type="submit" disabled={sending || !input.trim()}
-              style={{ width: '36px', height: '36px', borderRadius: '50%', background: input.trim() ? 'var(--accent)' : 'var(--grey-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'var(--transition)', flexShrink: 0 }}>
-              <FiSend size={16} color="#fff" />
+              style={{ width: '34px', height: '34px', borderRadius: '10px', background: input.trim() ? 'var(--accent)' : 'var(--grey-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'var(--transition)', flexShrink: 0 }}>
+              <FiSend size={15} color="#fff" />
             </button>
           </form>
           <p style={{ textAlign: 'center', fontSize: '11px', color: 'var(--grey-2)', marginTop: '8px' }}>
-            Enterprise data or AI innovation — every source tracked.
+            Veda can make mistakes. Verify important information with HR.
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ChatHistoryItem({ chat, active, onClick, onDelete }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div onClick={onClick} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: active ? 'var(--brand-black)' : 'var(--grey-1)', background: active ? 'var(--border-color)' : hovered ? 'rgba(0,0,0,0.03)' : 'transparent', fontSize: '13px', marginBottom: '2px', transition: 'var(--transition)' }}>
+      <FiMessageSquare size={14} style={{ flexShrink: 0 }} />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{chat.title}</span>
+      {hovered && (
+        <button onClick={onDelete} title="Delete chat"
+          style={{ background: 'none', padding: '4px', color: 'var(--grey-2)', borderRadius: '4px', display: 'flex', alignItems: 'center', flexShrink: 0, transition: 'color 0.15s' }}
+          onMouseEnter={(e) => e.currentTarget.style.color = '#e53e3e'}
+          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--grey-2)'}>
+          <FiTrash2 size={13} />
+        </button>
+      )}
     </div>
   );
 }
@@ -189,121 +245,122 @@ function NavItem({ icon, label, active, onClick, accent }) {
 
 function MessageBubble({ message }) {
   const isUser = message.role === 'user';
-  const data = message.data;
 
   return (
-    <div className="fade-in" style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: '20px' }}>
+    <div className="fade-in" style={{ display: 'flex', gap: '12px', marginBottom: '24px', justifyContent: isUser ? 'flex-end' : 'flex-start' }}>
       {/* Assistant avatar */}
       {!isUser && (
-        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent), #6B8AFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginRight: '10px', marginTop: '2px' }}>
-          <span style={{ color: '#fff', fontSize: '14px', fontWeight: 700 }}>V</span>
+        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent), #6B8AFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '2px' }}>
+          <span style={{ color: '#fff', fontSize: '12px', fontWeight: 700 }}>V</span>
         </div>
       )}
-      <div style={{ maxWidth: '80%', minWidth: data?.type === 'table' ? '400px' : 'auto' }}>
-        {/* Message bubble */}
-        <div style={{
-          padding: isUser ? '12px 18px' : '16px 20px',
-          borderRadius: isUser ? '18px 18px 4px 18px' : '4px 18px 18px 18px',
-          background: isUser ? 'var(--accent)' : '#fff',
-          color: isUser ? '#fff' : 'var(--text-primary)',
-          fontSize: '14px', lineHeight: 1.7,
-          boxShadow: isUser ? 'none' : '0 1px 3px rgba(0,0,0,0.08)',
-          border: isUser ? 'none' : '1px solid var(--border-color)',
-        }}>
-          {/* Render markdown-like content */}
-          <div dangerouslySetInnerHTML={{ __html: formatContent(message.content) }} />
-
-          {/* Render table if present */}
-          {data?.type === 'table' && data?.data && (
-            <div style={{ marginTop: '14px', overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                <thead>
-                  <tr>{data.data.headers.map((h, i) => (
-                    <th key={i} style={{
-                      padding: '10px 14px', textAlign: 'left',
-                      background: 'var(--brand-black)', color: '#fff',
-                      fontWeight: 600, whiteSpace: 'nowrap', fontSize: '12px',
-                      letterSpacing: '0.3px', textTransform: 'uppercase',
-                    }}>{h}</th>
-                  ))}</tr>
-                </thead>
-                <tbody>
-                  {data.data.rows.map((row, ri) => (
-                    <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : 'var(--bg-secondary)', transition: 'background 0.15s' }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#EEF2FF'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = ri % 2 === 0 ? '#fff' : 'var(--bg-secondary)'}>
-                      {row.map((cell, ci) => (
-                        <td key={ci} style={{ padding: '10px 14px', whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)', fontSize: '13px' }}
-                          dangerouslySetInnerHTML={{ __html: cell.replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--accent)">$1</strong>') }} />
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Render document cards */}
-          {data?.type === 'documents' && data?.documents && (
-            <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {data.documents.map((doc, i) => (
-                <a key={i} href={doc.fileUrl} target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: '10px', border: '1px solid var(--border-color)', textDecoration: 'none', color: 'var(--text-primary)', transition: 'all 0.2s' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = '#EEF2FF'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: doc.type === 'Policy' ? 'var(--sky-blue)' : doc.type === 'Payslip' ? 'var(--mint-green)' : 'var(--soft-lavender)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span style={{ fontSize: '16px' }}>{doc.type === 'Policy' ? '📋' : doc.type === 'Payslip' ? '💰' : '📄'}</span>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--brand-black)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.title}</div>
-                    {doc.description && <div style={{ fontSize: '11px', color: 'var(--grey-1)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.description}</div>}
-                  </div>
-                  <span style={{ fontSize: '10px', padding: '3px 8px', borderRadius: '50px', background: doc.type === 'Policy' ? 'var(--sky-blue)' : doc.type === 'Payslip' ? 'var(--mint-green)' : 'var(--soft-lavender)', fontWeight: 600, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.3px' }}>{doc.type}</span>
-                </a>
-              ))}
-            </div>
-          )}
-
-          {/* Linked documents from salary queries etc */}
-          {data?.documents && data?.type !== 'documents' && (
-            <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--grey-1)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Attached Documents</div>
-              {data.documents.map((doc, i) => (
-                <a key={i} href={doc.fileUrl} target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '12px', color: 'var(--accent)', textDecoration: 'none', fontWeight: 500, transition: 'background 0.2s' }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#EEF2FF'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}>
-                  <span>📄</span> {doc.title}
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div style={{ fontSize: '10px', color: 'var(--grey-2)', marginTop: '4px', textAlign: isUser ? 'right' : 'left', paddingLeft: isUser ? 0 : '4px', paddingRight: isUser ? '4px' : 0 }}>
+      <div style={{ maxWidth: isUser ? '70%' : '100%', minWidth: 0 }}>
+        {isUser ? (
+          <div style={{
+            padding: '10px 16px',
+            borderRadius: '18px 18px 4px 18px',
+            background: 'var(--accent)',
+            color: '#fff',
+            fontSize: '14px', lineHeight: 1.6,
+          }}>
+            {message.content}
+          </div>
+        ) : (
+          <div className="markdown-body" style={{ fontSize: '14px', lineHeight: 1.7, color: 'var(--text-primary)' }}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+        )}
+        <div style={{ fontSize: '10px', color: 'var(--grey-2)', marginTop: '4px', textAlign: isUser ? 'right' : 'left' }}>
           {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </div>
       </div>
+      {/* User avatar */}
+      {isUser && (
+        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--grey-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '2px' }}>
+          <FiUser size={13} color="var(--grey-1)" />
+        </div>
+      )}
     </div>
   );
 }
 
-function formatContent(text) {
+function renderMarkdown(text) {
   if (!text) return '';
-  return text
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br/>')
-    .replace(/• /g, '<span style="color:var(--accent);margin-right:6px">&#8226;</span>')
-    .replace(/✅ /g, '<span style="margin-right:4px">&#9989;</span>');
+
+  let html = text;
+
+  // Escape HTML (basic)
+  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Code blocks (```)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+  // Italic
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+  // Links [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+  // Tables
+  html = html.replace(/^(\|.+\|)\n(\|[\s\-:|]+\|)\n((?:\|.+\|\n?)*)/gm, (match, headerRow, sepRow, bodyRows) => {
+    const headers = headerRow.split('|').filter(c => c.trim()).map(c => `<th>${c.trim()}</th>`).join('');
+    const rows = bodyRows.trim().split('\n').map(row => {
+      const cells = row.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('');
+      return `<tr>${cells}</tr>`;
+    }).join('');
+    return `<div class="table-wrap"><table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  });
+
+  // Ordered lists
+  html = html.replace(/^(\d+)\. (.+)$/gm, '<li class="ol-item" value="$1">$2</li>');
+  html = html.replace(/((?:<li class="ol-item"[^>]*>.*<\/li>\n?)+)/g, '<ol>$1</ol>');
+
+  // Unordered lists
+  html = html.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, (match) => {
+    if (match.includes('class="ol-item"')) return match;
+    return `<ul>${match}</ul>`;
+  });
+
+  // Horizontal rules
+  html = html.replace(/^---$/gm, '<hr/>');
+
+  // Paragraphs — convert double newlines
+  html = html.replace(/\n\n/g, '</p><p>');
+  // Single newlines inside text (not after block elements)
+  html = html.replace(/(?<!<\/h[123]>|<\/table>|<\/div>|<\/pre>|<\/ul>|<\/ol>|<\/li>|<hr\/>|<\/p>|<p>)\n(?!<h[123]|<table|<div|<pre|<ul|<ol|<li|<hr|<\/p>|<p>)/g, '<br/>');
+
+  // Wrap in paragraph if not starting with block element
+  if (!/^<(h[123]|div|table|pre|ul|ol|hr)/.test(html)) {
+    html = `<p>${html}</p>`;
+  }
+
+  // Clean up empty paragraphs
+  html = html.replace(/<p>\s*<\/p>/g, '');
+
+  return html;
 }
 
 function TypingIndicator() {
   return (
-    <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '16px' }}>
-      <div style={{ padding: '14px 20px', borderRadius: '18px 18px 18px 4px', background: 'var(--bg-secondary)' }}>
+    <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+      <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent), #6B8AFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <span style={{ color: '#fff', fontSize: '12px', fontWeight: 700 }}>V</span>
+      </div>
+      <div style={{ padding: '12px 18px', borderRadius: '16px', background: 'var(--bg-secondary)' }}>
         <div style={{ display: 'flex', gap: '4px' }}>
           {[0, 1, 2].map(i => (
-            <div key={i} style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--grey-2)', animation: `pulse 1.2s ease infinite ${i * 0.2}s` }} />
+            <div key={i} style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--grey-2)', animation: `pulse 1.2s ease infinite ${i * 0.2}s` }} />
           ))}
         </div>
       </div>

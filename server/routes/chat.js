@@ -74,6 +74,17 @@ router.get('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// DELETE /api/chat/:id
+router.delete('/:id', authMiddleware, async (req, res) => {
+  try {
+    const chat = await ChatHistory.findOneAndDelete({ _id: req.params.id, userId: req.user.employeeCode });
+    if (!chat) return res.status(404).json({ message: 'Chat not found' });
+    res.json({ message: 'Chat deleted' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // POST /api/chat/new
 router.post('/new', authMiddleware, async (req, res) => {
   try {

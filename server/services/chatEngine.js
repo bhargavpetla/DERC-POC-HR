@@ -88,8 +88,8 @@ async function gatherContext(message, role, employeeCode, department) {
     }
   }
 
-  // Team queries
-  if (/team|report|direct|headcount|member|staff/.test(msg)) {
+  // Team / employee list queries
+  if (/team|report|direct|headcount|member|staff|employee|show all/.test(msg)) {
     if (role === 'hr_head') {
       context.allEmployees = await Employee.find({}).select('employeeCode firstName lastName department designation status region').lean();
     } else if (role === 'manager') {
@@ -124,7 +124,7 @@ async function gatherContext(message, role, employeeCode, department) {
   }
 
   // Department queries
-  if (/department|administration|human.?resources|finance|government.?relations|operations/.test(msg)) {
+  if (/department|overview|administration|human.?resources|finance|government.?relations|operations/.test(msg)) {
     const depts = await Department.find().lean();
     context.departmentStats = await Promise.all(depts.map(async (d) => {
       const count = await Employee.countDocuments({ department: d.name });
@@ -164,14 +164,17 @@ role === 'manager' ? `- This user can see their OWN data and their TEAM data (${
 - They can see organization-wide analytics and summaries.`}
 
 SALARY STRUCTURE: Basic Salary + Living Allowance + Mobile Allowance = Gross. Net Pay = Gross (no tax in UAE).
-LEAVE STRUCTURE: Annual Leave (30 or 35 days/year), Sick Leave (up to 90 days/year), Compensatory Off.
+LEAVE STRUCTURE: Annual Leave (30 or 35 days/year based on entity), Sick Leave (up to 90 days/year), Compensatory Off.
 
-RESPONSE FORMAT:
-- Be conversational but concise.
-- Use bullet points for lists.
-- Use bold (**text**) for emphasis.
-- When showing tabular data, format it as a clean markdown table.
-- For currency, use AED symbol.
+RESPONSE FORMAT — CRITICAL RULES:
+- Respond in clean, well-formatted **Markdown**.
+- Use **bold** for labels and important values.
+- Use markdown tables (| col1 | col2 |) for tabular data — always include header separator (|---|---|).
+- Use bullet points (- item) for lists.
+- Use ### for section headings when needed.
+- For currency, always prefix with "AED".
+- Keep responses conversational, concise, and well-structured.
+- When showing documents/policies with download links, format as a numbered list with the document name as a markdown link: [Document Name](url)
 - Do NOT make up data. Only use the CONTEXT DATA provided below.
 - If data is not available in context, say you don't have that information and suggest they contact HR.
 
@@ -183,33 +186,19 @@ ${JSON.stringify(contextData, null, 2)}`;
     systemInstruction: { parts: [{ text: systemPrompt }] },
     generationConfig: {
       temperature: 0.7,
-      maxOutputTokens: 1500,
+      maxOutputTokens: 2000,
     },
   });
 
   const responseText = result.response.text();
-
-  const response = { content: responseText, type: 'text' };
-
-  // Attach documents if relevant
-  if (contextData.policies && /policy|policies/.test(message.toLowerCase())) {
-    response.type = 'documents';
-    response.documents = contextData.policies.map(p => ({ title: p.title, fileUrl: p.fileUrl, type: p.type, description: p.description }));
-  }
-
-  if (contextData.documents && /document|certificate|letter|proof/.test(message.toLowerCase())) {
-    response.type = 'documents';
-    response.documents = contextData.documents.map(d => ({ title: d.title, fileUrl: d.fileUrl, type: d.type, description: d.description }));
-  }
-
-  if (contextData.payslips?.length > 0 && /payslip/.test(message.toLowerCase())) {
-    response.documents = contextData.payslips.map(d => ({ title: d.title, fileUrl: d.fileUrl, type: d.type }));
-  }
-
-  return response;
+  return { content: responseText, type: 'text' };
 }
 
 // ──────── FALLBACK: Rule-based engine ──────── //
+
+function fmtAED(val) {
+  return val != null ? `AED ${val.toLocaleString()}` : '—';
+}
 
 async function ruleBasedResponse(message, user, contextData) {
   const msg = message.toLowerCase();
@@ -218,7 +207,7 @@ async function ruleBasedResponse(message, user, contextData) {
   // Greeting
   if (/^(hi|hello|hey|good morning|good afternoon|good evening)/.test(msg)) {
     return {
-      content: `Hello ${firstName}! I'm Veda, your HR Concierge. I can help you with:\n\n• **Leave Balance** — Check your remaining leaves\n• **Payslip & Salary** — View compensation details\n• **HR Policies** — Browse company policies\n• **Team Info** — ${role === 'employee' ? 'View your manager info' : 'View your team details'}\n• **Benefits** — Check your benefits\n• **Documents** — Access your documents\n\nWhat would you like to know?`,
+      content: `Hello ${firstName}! 👋 I'm **Veda**, your HR Concierge.\n\nHere's what I can help you with:\n\n- **Leave Balance** — Check your remaining leaves\n- **Payslip & Salary** — View compensation details\n- **HR Policies** — Browse company policies\n- **Team Info** — ${role === 'employee' ? 'View your manager info' : 'View your team details'}\n- **Benefits** — Check your enrolled benefits\n- **Documents** — Access your documents\n\nJust type naturally — how can I help you today?`,
       type: 'text',
     };
   }
@@ -226,14 +215,14 @@ async function ruleBasedResponse(message, user, contextData) {
   // Access denied
   if (contextData.accessDenied) {
     return {
-      content: `I'm sorry ${firstName}, you don't have permission to view information for employee ${contextData.deniedTarget}. ${role === 'employee' ? 'You can only view your own records.' : `You can only view information for your department (${department}).`}`,
+      content: `⚠️ **Access Denied**\n\nSorry ${firstName}, you don't have permission to view information for employee **${contextData.deniedTarget}**.\n\n${role === 'employee' ? 'As an employee, you can only view your own records.' : `As a manager, you can only view information for your department (**${department}**).`}`,
       type: 'text',
     };
   }
 
   // Employee not found
   if (contextData.employeeNotFound) {
-    return { content: `Employee ${contextData.employeeNotFound} was not found in the system.`, type: 'text' };
+    return { content: `Employee **${contextData.employeeNotFound}** was not found in the system. Please check the employee code and try again.`, type: 'text' };
   }
 
   // Specific employee lookup
@@ -242,20 +231,18 @@ async function ruleBasedResponse(message, user, contextData) {
     if (/leave|balance/.test(msg)) {
       const entitlement = t.legalEntity?.includes('PRIVATE') ? 35 : 30;
       return {
-        content: `Here's the leave balance for **${t.firstName} ${t.lastName}** (${t.employeeCode}):`,
-        type: 'table',
-        data: { headers: ['Leave Type', 'Available', 'Entitlement'], rows: [['Annual', String(t.leaveBalance?.annual), String(entitlement)], ['Sick', String(t.leaveBalance?.sick), '90'], ['Comp. Off', String(t.leaveBalance?.compensatoryOff || 0), '—'], ['**Total**', `**${t.leaveBalance?.total}**`, '']] },
+        content: `### Leave Balance — ${t.firstName} ${t.lastName} (${t.employeeCode})\n\n| Leave Type | Available | Entitlement |\n|---|---|---|\n| Annual | ${t.leaveBalance?.annual} | ${entitlement} |\n| Sick | ${t.leaveBalance?.sick} | 90 |\n| Comp. Off | ${t.leaveBalance?.compensatoryOff || 0} | — |\n| **Total** | **${t.leaveBalance?.total}** | |`,
+        type: 'text',
       };
     }
     if (/salary|pay/.test(msg)) {
       return {
-        content: `Salary details for **${t.firstName} ${t.lastName}** (${t.employeeCode}):`,
-        type: 'table',
-        data: { headers: ['Component', 'Amount (AED)'], rows: [['Basic', `${t.salary?.basic?.toLocaleString()}`], ['Living Allowance', `${t.salary?.livingAllowance?.toLocaleString()}`], ['Mobile Allowance', `${t.salary?.mobileAllowance?.toLocaleString()}`], ['**Gross/Net**', `**${t.salary?.gross?.toLocaleString()}**`]] },
+        content: `### Salary Details — ${t.firstName} ${t.lastName} (${t.employeeCode})\n\n| Component | Amount |\n|---|---|\n| Basic Salary | ${fmtAED(t.salary?.basic)} |\n| Living Allowance | ${fmtAED(t.salary?.livingAllowance)} |\n| Mobile Allowance | ${fmtAED(t.salary?.mobileAllowance)} |\n| **Gross / Net Pay** | **${fmtAED(t.salary?.gross)}** |`,
+        type: 'text',
       };
     }
     return {
-      content: `**${t.firstName} ${t.lastName}** (${t.employeeCode})\n\n• **Department:** ${t.department}\n• **Designation:** ${t.designation}\n• **Region:** ${t.region}\n• **Legal Entity:** ${t.legalEntity}\n• **Email:** ${t.email}\n• **Phone:** ${t.phone}\n• **Joining Date:** ${new Date(t.dateOfJoining).toLocaleDateString()}\n• **Status:** ${t.status}`,
+      content: `### Employee Profile — ${t.firstName} ${t.lastName}\n\n| Field | Details |\n|---|---|\n| Employee Code | ${t.employeeCode} |\n| Department | ${t.department} |\n| Designation | ${t.designation} |\n| Region | ${t.region} |\n| Legal Entity | ${t.legalEntity} |\n| Email | ${t.email} |\n| Phone | ${t.phone} |\n| Joining Date | ${new Date(t.dateOfJoining).toLocaleDateString()} |\n| Status | ${t.status} |`,
       type: 'text',
     };
   }
@@ -263,19 +250,19 @@ async function ruleBasedResponse(message, user, contextData) {
   // Leave balance
   if (/leave|balance|vacation|pto|annual/.test(msg)) {
     if (contextData.teamLeaves) {
-      return {
-        content: `Leave balance for ${role === 'hr_head' ? 'all employees' : `your team in **${department}**`}:`,
-        type: 'table',
-        data: { headers: ['Name', 'Code', 'Annual', 'Sick', 'Comp. Off', 'Total'], rows: contextData.teamLeaves.map(e => [`${e.firstName} ${e.lastName}`, e.employeeCode, String(e.leaveBalance?.annual), String(e.leaveBalance?.sick), String(e.leaveBalance?.compensatoryOff || 0), String(e.leaveBalance?.total)]) },
-      };
+      const header = role === 'hr_head' ? 'All Employees' : `Team — ${department}`;
+      let md = `### Leave Balance — ${header}\n\n| Name | Code | Annual | Sick | Comp. Off | Total |\n|---|---|---|---|---|---|\n`;
+      contextData.teamLeaves.forEach(e => {
+        md += `| ${e.firstName} ${e.lastName} | ${e.employeeCode} | ${e.leaveBalance?.annual} | ${e.leaveBalance?.sick} | ${e.leaveBalance?.compensatoryOff || 0} | ${e.leaveBalance?.total} |\n`;
+      });
+      return { content: md.trim(), type: 'text' };
     }
     if (contextData.self) {
       const s = contextData.self;
       const entitlement = s.legalEntity?.includes('PRIVATE') ? 35 : 30;
       return {
-        content: `Hi ${firstName}! Here's your leave balance:`,
-        type: 'table',
-        data: { headers: ['Leave Type', 'Available', 'Entitlement'], rows: [['Annual', String(s.leaveBalance?.annual), String(entitlement)], ['Sick', String(s.leaveBalance?.sick), '90'], ['Comp. Off', String(s.leaveBalance?.compensatoryOff || 0), '—'], ['**Total**', `**${s.leaveBalance?.total}**`, '']] },
+        content: `Hi ${firstName}! Here's your leave balance:\n\n| Leave Type | Available | Entitlement |\n|---|---|---|\n| Annual | ${s.leaveBalance?.annual} | ${entitlement} |\n| Sick | ${s.leaveBalance?.sick} | 90 |\n| Comp. Off | ${s.leaveBalance?.compensatoryOff || 0} | — |\n| **Total** | **${s.leaveBalance?.total}** | |`,
+        type: 'text',
       };
     }
   }
@@ -284,42 +271,45 @@ async function ruleBasedResponse(message, user, contextData) {
   if (/salary|payslip|pay|compensation|ctc|allowance/.test(msg)) {
     const s = contextData.self;
     if (s) {
-      const resp = {
-        content: `Hi ${firstName}! Your salary breakdown:`,
-        type: 'table',
-        data: { headers: ['Component', 'Amount (AED)'], rows: [['Basic', `${s.salary?.basic?.toLocaleString()}`], ['Living Allowance', `${s.salary?.livingAllowance?.toLocaleString()}`], ['Mobile Allowance', `${s.salary?.mobileAllowance?.toLocaleString()}`], ['**Gross/Net**', `**${s.salary?.gross?.toLocaleString()}**`]] },
-      };
+      let md = `Hi ${firstName}! Here's your salary breakdown:\n\n| Component | Amount |\n|---|---|\n| Basic Salary | ${fmtAED(s.salary?.basic)} |\n| Living Allowance | ${fmtAED(s.salary?.livingAllowance)} |\n| Mobile Allowance | ${fmtAED(s.salary?.mobileAllowance)} |\n| **Gross / Net Pay** | **${fmtAED(s.salary?.gross)}** |`;
       if (contextData.payslips?.length) {
-        resp.documents = contextData.payslips.map(d => ({ title: d.title, fileUrl: d.fileUrl, type: d.type }));
+        md += `\n\n**📄 Payslip Documents:**\n`;
+        contextData.payslips.forEach((d, i) => {
+          md += `${i + 1}. [${d.title}](${d.fileUrl})\n`;
+        });
       }
-      return resp;
+      return { content: md.trim(), type: 'text' };
     }
   }
 
   // Policies
   if (/policy|policies|handbook|guideline|paternity|maternity|remote.?work|grievance/.test(msg)) {
     if (contextData.policies?.length) {
-      return {
-        content: `Here are the company policy documents:`,
-        type: 'documents',
-        documents: contextData.policies.map(p => ({ title: p.title, fileUrl: p.fileUrl, type: p.type, description: p.description })),
-      };
+      let md = `### Company Policies\n\nHere are all the available policy documents:\n\n`;
+      contextData.policies.forEach((p, i) => {
+        md += `${i + 1}. **${p.title}**`;
+        if (p.description) md += ` — ${p.description}`;
+        if (p.fileUrl) md += `\n   📥 [Download](${p.fileUrl})`;
+        md += `\n`;
+      });
+      return { content: md.trim(), type: 'text' };
     }
-    return { content: 'No policy documents are currently available.', type: 'text' };
+    return { content: 'No policy documents are currently available. Please contact HR for assistance.', type: 'text' };
   }
 
-  // Team
-  if (/team|report|direct|headcount|member|staff/.test(msg)) {
+  // Team / all employees
+  if (/team|report|direct|headcount|member|staff|employee|show all/.test(msg)) {
     if (role === 'employee') {
-      return { content: `Sorry ${firstName}, you don't have permission to view team information.`, type: 'text' };
+      return { content: `⚠️ Sorry ${firstName}, you don't have permission to view team information. You can only access your own records.`, type: 'text' };
     }
     const team = contextData.allEmployees || contextData.teamMembers;
     if (team) {
-      return {
-        content: `${role === 'hr_head' ? 'All employees' : `Your team in **${department}**`} (${team.length}):`,
-        type: 'table',
-        data: { headers: ['Code', 'Name', 'Designation', 'Department', 'Status'], rows: team.map(e => [e.employeeCode, `${e.firstName} ${e.lastName}`, e.designation, e.department, e.status]) },
-      };
+      const header = role === 'hr_head' ? `All Employees (${team.length})` : `Your Team — ${department} (${team.length})`;
+      let md = `### ${header}\n\n| Code | Name | Designation | Department | Status |\n|---|---|---|---|---|\n`;
+      team.forEach(e => {
+        md += `| ${e.employeeCode} | ${e.firstName} ${e.lastName} | ${e.designation} | ${e.department} | ${e.status} |\n`;
+      });
+      return { content: md.trim(), type: 'text' };
     }
   }
 
@@ -329,61 +319,76 @@ async function ruleBasedResponse(message, user, contextData) {
     if (s?.reportingManager) {
       const mgr = await Employee.findOne({ employeeCode: s.reportingManager });
       if (mgr) {
-        return { content: `Your reporting manager is **${mgr.firstName} ${mgr.lastName}** (${mgr.employeeCode})\n\n• **Designation:** ${mgr.designation}\n• **Department:** ${mgr.department}\n• **Email:** ${mgr.email}\n• **Phone:** ${mgr.phone}`, type: 'text' };
+        return {
+          content: `Your reporting manager is:\n\n| Field | Details |\n|---|---|\n| Name | **${mgr.firstName} ${mgr.lastName}** |\n| Employee Code | ${mgr.employeeCode} |\n| Designation | ${mgr.designation} |\n| Department | ${mgr.department} |\n| Email | ${mgr.email} |\n| Phone | ${mgr.phone} |`,
+          type: 'text',
+        };
       }
     }
-    return { content: `Hi ${firstName}! No reporting manager is assigned in the system.`, type: 'text' };
+    return { content: `Hi ${firstName}! No reporting manager is currently assigned to you in the system. Please contact HR for assistance.`, type: 'text' };
   }
 
   // Benefits
   if (/benefit|insurance|perk|ticket|air.?ticket|education|child/.test(msg)) {
     if (contextData.benefitsSummary) {
+      let md = `### Company Benefits Summary\n\n| Benefit | Employees Enrolled |\n|---|---|\n`;
+      Object.entries(contextData.benefitsSummary).forEach(([b, c]) => {
+        md += `| ${b} | ${c} |\n`;
+      });
+      return { content: md.trim(), type: 'text' };
+    }
+    if (contextData.self?.benefits?.length) {
       return {
-        content: 'Benefits enrollment summary:',
-        type: 'table',
-        data: { headers: ['Benefit', 'Enrolled'], rows: Object.entries(contextData.benefitsSummary).map(([b, c]) => [b, String(c)]) },
+        content: `Hi ${firstName}! Here are your enrolled benefits:\n\n${contextData.self.benefits.map(b => `- **${b}**`).join('\n')}`,
+        type: 'text',
       };
     }
-    if (contextData.self?.benefits) {
-      return { content: `Hi ${firstName}! Your benefits:\n\n${contextData.self.benefits.map(b => `• ${b}`).join('\n')}`, type: 'text' };
-    }
+    return { content: `Hi ${firstName}! No benefits are currently enrolled for your profile. Please contact HR for more information.`, type: 'text' };
   }
 
   // Documents
   if (/document|letter|contract|appraisal|proof|certificate|tax|appointment/.test(msg)) {
     if (contextData.documents?.length) {
-      return {
-        content: 'Your accessible documents:',
-        type: 'documents',
-        documents: contextData.documents.map(d => ({ title: d.title, fileUrl: d.fileUrl, type: d.type, description: d.description })),
-      };
+      let md = `### Your Documents\n\n`;
+      contextData.documents.forEach((d, i) => {
+        md += `${i + 1}. **${d.title}** (${d.type})`;
+        if (d.description) md += ` — ${d.description}`;
+        if (d.fileUrl) md += `\n   📥 [Download](${d.fileUrl})`;
+        md += `\n`;
+      });
+      return { content: md.trim(), type: 'text' };
     }
-    return { content: 'No documents found. Please contact HR.', type: 'text' };
+    return { content: 'No documents found for your profile. Please contact HR if you think this is an error.', type: 'text' };
   }
 
-  // Department
+  // Department overview
   if (contextData.departmentStats) {
     if (role === 'manager') {
       const myDept = contextData.departmentStats.find(d => d.name === department);
-      if (myDept) return { content: `**${myDept.name}** department:\n\n• **Manager:** ${myDept.managerName}\n• **Region:** ${myDept.region}\n• **Headcount:** ${myDept.employeeCount}`, type: 'text' };
+      if (myDept) {
+        return {
+          content: `### Department — ${myDept.name}\n\n| Field | Details |\n|---|---|\n| Manager | ${myDept.managerName} |\n| Region | ${myDept.region} |\n| Headcount | ${myDept.employeeCount} |`,
+          type: 'text',
+        };
+      }
     }
-    return {
-      content: 'Department overview:',
-      type: 'table',
-      data: { headers: ['Department', 'Manager', 'Region', 'Headcount'], rows: contextData.departmentStats.map(d => [d.name, d.managerName || d.managerId, d.region, String(d.employeeCount)]) },
-    };
+    let md = `### Department Overview\n\n| Department | Manager | Region | Headcount |\n|---|---|---|---|\n`;
+    contextData.departmentStats.forEach(d => {
+      md += `| ${d.name} | ${d.managerName || d.managerId} | ${d.region} | ${d.employeeCount} |\n`;
+    });
+    return { content: md.trim(), type: 'text' };
   }
 
   // Help
   if (/help|what can you|how|assist/.test(msg)) {
     return {
-      content: `Hi ${firstName}! I'm Veda, your HR Concierge. I can help with:\n\n• **"What is my leave balance?"**\n• **"Show my payslip"**\n• **"Company policies"**\n• **"Who is my manager?"**\n• **"My benefits"**\n• **"My documents"**${role !== 'employee' ? '\n• **"Show my team"**' : ''}\n\nJust type naturally!`,
+      content: `Hi ${firstName}! I'm **Veda**, your HR Concierge. Here's what I can help with:\n\n- **"What is my leave balance?"** — Check your remaining leaves\n- **"Show my payslip"** — View salary and download payslips\n- **"Company policies"** — Browse and download policy documents\n- **"Who is my manager?"** — View reporting manager info\n- **"My benefits"** — Check enrolled benefits\n- **"My documents"** — Access your documents${role !== 'employee' ? '\n- **"Show my team"** — View your team members' : ''}\n\nJust type naturally — I understand conversational queries!`,
       type: 'text',
     };
   }
 
   return {
-    content: `I'm sorry, I didn't quite understand that. I can help you with leave balance, salary, policies, benefits, documents, and team information. Could you try rephrasing?`,
+    content: `I'm sorry, I didn't quite understand that. Try asking me about:\n\n- Leave balance\n- Salary / payslip\n- Company policies\n- Benefits\n- Documents\n- Team information\n\nCould you try rephrasing your question?`,
     type: 'text',
   };
 }
