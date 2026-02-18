@@ -83,8 +83,13 @@ router.post('/', authMiddleware, hrOnly, upload.single('file'), async (req, res)
 
 // GET /api/documents/file/:filename
 router.get('/file/:filename', (req, res) => {
+  const fs = require('fs');
   const filePath = path.join(__dirname, '..', 'documents', req.params.filename);
-  res.sendFile(filePath);
+  if (fs.existsSync(filePath)) {
+    res.sendFile(filePath);
+  } else {
+    res.status(404).json({ message: 'Document file not available. This is a demo environment — actual document files are generated during seeding on configured instances.' });
+  }
 });
 
 // DELETE /api/documents/:id
