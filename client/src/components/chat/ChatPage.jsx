@@ -1,8 +1,16 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { FiHome, FiSettings, FiPlus, FiMessageSquare, FiSend, FiDatabase, FiLogOut, FiUser, FiTrash2 } from 'react-icons/fi';
+
+// Configure marked
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
 
 const roleBadge = (role) => {
   const map = { hr_head: { bg: 'var(--sky-blue)', label: 'HR Head' }, manager: { bg: 'var(--soft-lavender)', label: 'Manager' }, employee: { bg: 'var(--mint-green)', label: 'Employee' } };
@@ -285,70 +293,14 @@ function MessageBubble({ message }) {
 
 function renderMarkdown(text) {
   if (!text) return '';
-
-  let html = text;
-
-  // Escape HTML (basic)
-  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  // Code blocks (```)
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-
-  // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-
-  // Headers
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-
-  // Bold
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-
-  // Italic
-  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-
-  // Links [text](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-
-  // Tables
-  html = html.replace(/^(\|.+\|)\n(\|[\s\-:|]+\|)\n((?:\|.+\|\n?)*)/gm, (match, headerRow, sepRow, bodyRows) => {
-    const headers = headerRow.split('|').filter(c => c.trim()).map(c => `<th>${c.trim()}</th>`).join('');
-    const rows = bodyRows.trim().split('\n').map(row => {
-      const cells = row.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('');
-      return `<tr>${cells}</tr>`;
-    }).join('');
-    return `<div class="table-wrap"><table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  let html = marked.parse(text);
+  // Wrap tables in scrollable div
+  html = html.replace(/<table>/g, '<div class="table-wrap"><table>').replace(/<\/table>/g, '</table></div>');
+  // Make links open in new tab
+  html = html.replace(/<a href="/g, '<a target="_blank" rel="noopener noreferrer" href="');
+  return DOMPurify.sanitize(html, {
+    ADD_ATTR: ['target', 'rel'],
   });
-
-  // Ordered lists
-  html = html.replace(/^(\d+)\. (.+)$/gm, '<li class="ol-item" value="$1">$2</li>');
-  html = html.replace(/((?:<li class="ol-item"[^>]*>.*<\/li>\n?)+)/g, '<ol>$1</ol>');
-
-  // Unordered lists
-  html = html.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, (match) => {
-    if (match.includes('class="ol-item"')) return match;
-    return `<ul>${match}</ul>`;
-  });
-
-  // Horizontal rules
-  html = html.replace(/^---$/gm, '<hr/>');
-
-  // Paragraphs — convert double newlines
-  html = html.replace(/\n\n/g, '</p><p>');
-  // Single newlines inside text (not after block elements)
-  html = html.replace(/(?<!<\/h[123]>|<\/table>|<\/div>|<\/pre>|<\/ul>|<\/ol>|<\/li>|<hr\/>|<\/p>|<p>)\n(?!<h[123]|<table|<div|<pre|<ul|<ol|<li|<hr|<\/p>|<p>)/g, '<br/>');
-
-  // Wrap in paragraph if not starting with block element
-  if (!/^<(h[123]|div|table|pre|ul|ol|hr)/.test(html)) {
-    html = `<p>${html}</p>`;
-  }
-
-  // Clean up empty paragraphs
-  html = html.replace(/<p>\s*<\/p>/g, '');
-
-  return html;
 }
 
 function TypingIndicator() {

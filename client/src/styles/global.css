@@ -153,10 +153,23 @@ input, select, textarea {
   font-size: 13px;
   line-height: 1.5;
 }
-.markdown-body code.inline-code {
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.markdown-body code {
   background: var(--bg-secondary);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 13px;
   color: #e53e3e;
+}
+
+/* Emoji in text */
+.markdown-body p img.emoji {
+  display: inline;
+  height: 1em;
+  vertical-align: -0.1em;
 }
